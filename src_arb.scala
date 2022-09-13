@@ -87,74 +87,103 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
     }
   }
 
-  val uint = 0.U
-  val returngrant = VecInit(Seq.fill(n){false.B})
+  // set bool depending on signal from queue or input is chosen
+  val qout = WireInit(false.B)
 
+  val uint = 0.U
+  //seq that is delivered to grant
+  val returngrant = VecInit(Seq.fill(n){false.B})
+  //val to save oldest signal
   val oldest = Reg(UInt())
   oldest := PriorityEncoder(io.in.map(_.valid))
 
   //#############################################################################Queue
 
+  //length of queue
+  val count = 64
+  //create queue
+  val queue = Module(new Queue(gen, entries = count, n))
 
-  val queue = Module(new Queue(gen, entries = 64))
+  queue.io.rob_head := io.rob_head
 
   /*val queue = Module(new BranchKillableQueue(new ExeUnitResp(dataWidth),
     entries = 64))*/
-  val in_valid = false.B//Bool()
-  val in_bitsUop = NullMicroOp//new MicroOp
-  val in_bitsData = 0.U //UInt()
+  val in_valid = WireInit(VecInit(Seq.fill(n) {false.B}))//Wire(Bool())//io.in(0).valid//Wire(Output(Bool()))//false.B//Bool()
+  val in_bitsUop = WireInit(VecInit(Seq.fill(n) {NullMicroOp}))//NullMicroOp//new MicroOp
+  val in_bitsData = WireInit(VecInit(Seq.fill(n) {0.U}))//WireInit(0.U)//0.U //UInt()//WireInit(0.U)
+
   queue.io.brupdate := io.brupdate
-  queue.io.enq.valid       := in_valid
-  queue.io.enq.bits.uop    := in_bitsUop
-  queue.io.enq.bits.data   := in_bitsData
+
+  for(i <- 0 to n-1 by +1) {
+    queue.io.enq(i).valid := in_valid(i)
+    queue.io.enq(i).bits.uop := in_bitsUop(i)
+    queue.io.enq(i).bits.data := in_bitsData(i)
+    queue.io.enq(i).bits.predicated := io.in(0).bits.predicated
+    queue.io.enq(i).bits.fflags := io.in(0).bits.fflags
+  }
 
 
-  queue.io.enq.bits.predicated := io.in(0).bits.predicated
-  queue.io.enq.bits.fflags := io.in(0).bits.fflags
+
   queue.io.brupdate := io.brupdate
   queue.io.flush := io.kill
 
   io.out <> queue.io.deq // muss noch geaendert werden
-  /*ifpu_busy := !(queue.io.empty)
-  assert (queue.io.enq.ready)*/
+
 //find oldest input signal
-  /*for(i <- 0 to n-1 by +1) {
+  for(i <- 0 to n-1 by +1) {
     when(io.in(i).valid){
       //when(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldestValid.last).bits.uop.rob_idx, io.rob_head)){
       when(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
-        oldest := i.asUInt
         //put old oldest into queue
-        in_valid      := io.in(i).valid
-        in_bitsUop    := io.in(i).bits.uop
-        in_bitsData   := io.in(i).bits.data
+        in_valid(i)      := io.in(oldest).valid
+        in_bitsUop(i)    := io.in(oldest).bits.uop
+        in_bitsData(i)   := io.in(oldest).bits.data
+        //index of new oldest
+        oldest := i.asUInt
+      }
+      when(IsOlder(io.in(oldest).bits.uop.rob_idx, io.in(i).bits.uop.rob_idx, io.rob_head)){
+        //put i into queue
+        in_valid(i)      := io.in(i).valid
+        in_bitsUop(i)   := io.in(i).bits.uop
+        in_bitsData(i)   := io.in(i).bits.data
       }
     }
     //for (i <- oldest+1 until io.in.length by +1) {
     //for (i <- oldest+1.U until n by +1) {
     //oldestValid :+ Mux(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head), i, oldest)
 
-  }*/
+  }
 
-  //compare oldest input signal to queue
-  /*for (i <- 0 until queue.io.count) {
-    when(queue.valids(i)) {
+  //compare oldest input signal to oldest of queue
+  when(IsOlder(queue.io.deq.bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
+    qout := true.B
+    //put old oldest into queue
+    in_valid      := io.in(oldest).valid
+    in_bitsUop    := io.in(oldest).bits.uop
+    in_bitsData   := io.in(oldest).bits.data
+  }
+  /*
+  for (i <- 0 until count) {
+    /*when(queue.valids(i)) {
       //when(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldestValid.last).bits.uop.rob_idx, io.rob_head)){
-      when(IsOlder(queue.ram(i).bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)) {
+      when(IsOlder(queue.io.enq.bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)) {
 
+      }
+     }*/
+   }*/
+
+  //create sequence for grant
+  when(!qout) {
+    for (j <- 0 to n - 1 by +1) {
+      if (j.asUInt == oldest) {
+        //assert(returngrant(j) === true.B)
+        returngrant(j) := true.B
+      } else {
+        //assert(returngrant(j) === false.B)
+        returngrant(j) := false.B
       }
     }
   }
-
-  //create sequence for grant
-  for (j <- 0 to n-1 by +1){
-    if(j.asUInt==oldest){
-      //assert(returngrant(j) === true.B)
-      returngrant(j) := true.B
-    }else{
-      //assert(returngrant(j) === false.B)
-      returngrant(j) := false.B
-    }
-  }*/
 //###############################################################################
 
 
@@ -248,7 +277,18 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
 
 
   val grant = arbiterCtl
-  for ((in, g) <- io.in.zip(grant))
-    in.ready := g && io.out.ready
-  io.out.valid := !grant.last || io.in.last.valid
+  for ((in, g) <- io.in.zip(grant)) {
+    //set all in.ready to low
+    in.ready := g && io.out.ready && false.B
+  }
+  //oldest is an input signal
+  when(!qout){
+    for ((in, g) <- io.in.zip(grant))
+      in.ready := g && io.out.ready
+    io.out.valid := !grant.last || io.in.last.valid
+  }
+  //oldest is output of queue
+  when(qout){
+    io.out.valid := queue.io.deq.valid //io.deq.bits.uop.valid
+  }
 }
