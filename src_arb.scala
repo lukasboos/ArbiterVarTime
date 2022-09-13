@@ -135,9 +135,9 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
       //when(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldestValid.last).bits.uop.rob_idx, io.rob_head)){
       when(IsOlder(io.in(i).bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
         //put old oldest into queue
-        in_valid(i)      := io.in(oldest).valid
-        in_bitsUop(i)    := io.in(oldest).bits.uop
-        in_bitsData(i)   := io.in(oldest).bits.data
+        in_valid(oldest)      := io.in(oldest).valid
+        in_bitsUop(oldest)    := io.in(oldest).bits.uop
+        in_bitsData(oldest)   := io.in(oldest).bits.data
         //index of new oldest
         oldest := i.asUInt
       }
@@ -158,9 +158,9 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
   when(IsOlder(queue.io.deq.bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
     qout := true.B
     //put old oldest into queue
-    in_valid      := io.in(oldest).valid
-    in_bitsUop    := io.in(oldest).bits.uop
-    in_bitsData   := io.in(oldest).bits.data
+    in_valid(oldest)      := io.in(oldest).valid
+    in_bitsUop(oldest)    := io.in(oldest).bits.uop
+    in_bitsData(oldest)   := io.in(oldest).bits.data
   }
   /*
   for (i <- 0 until count) {
