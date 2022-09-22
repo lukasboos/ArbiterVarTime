@@ -79,12 +79,17 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
   val io = IO(new ArbiterIOVar(gen, n))
 
   io.chosen := (n - 1).asUInt
-  io.out.bits := io.in(n - 1).bits
+  /*io.out.bits := io.in(n - 1).bits
   for (i <- n - 2 to 0 by -1) {
     when(io.in(i).valid) {
       io.chosen := i.asUInt
       io.out.bits := io.in(i).bits
     }
+  }*/
+
+  //set all input.ready to true
+  for (i <- 0 to n-1 by +1){
+    io.in(i).ready := true.B
   }
 
   // set bool depending on signal from queue or input is chosen
@@ -155,13 +160,17 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
   }
 
   //compare oldest input signal to oldest of queue
-  when(IsOlder(queue.io.deq.bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
-    qout := true.B
-    //put old oldest into queue
-    in_valid(oldest)      := io.in(oldest).valid
-    in_bitsUop(oldest)    := io.in(oldest).bits.uop
-    in_bitsData(oldest)   := io.in(oldest).bits.data
+  when(queue.io.deq.valid){
+    when(IsOlder(queue.io.deq.bits.uop.rob_idx, io.in(oldest).bits.uop.rob_idx, io.rob_head)){
+      qout := true.B
+      //put old oldest into queue
+      in_valid(oldest)      := io.in(oldest).valid
+      in_bitsUop(oldest)    := io.in(oldest).bits.uop
+      in_bitsData(oldest)   := io.in(oldest).bits.data
+      io.out.bits := queue.io.deq.bits
+    }
   }
+
   /*
   for (i <- 0 until count) {
     /*when(queue.valids(i)) {
@@ -173,7 +182,8 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
    }*/
 
   //create sequence for grant
-  when(!qout) {
+  /*when(!qout) {
+
     for (j <- 0 to n - 1 by +1) {
       if (j.asUInt == oldest) {
         //assert(returngrant(j) === true.B)
@@ -183,7 +193,7 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
         returngrant(j) := false.B
       }
     }
-  }
+  }*/
 //###############################################################################
 
 
@@ -277,18 +287,20 @@ class ArbiterVarTime[T <: Data](val gen: ExeUnitResp, val n: Int) (implicit p: P
 
 
   val grant = arbiterCtl
-  for ((in, g) <- io.in.zip(grant)) {
+  /*for ((in, g) <- io.in.zip(grant)) {
     //set all in.ready to low
     in.ready := g && io.out.ready && false.B
-  }
+  }*/
   //oldest is an input signal
   when(!qout){
-    for ((in, g) <- io.in.zip(grant))
-      in.ready := g && io.out.ready
-    io.out.valid := !grant.last || io.in.last.valid
+    //io.out.valid := !grant.last || io.in.last.valid
+    io.out.valid := io.in.map(_.valid).length.asUInt =/= 0.U
+    io.chosen := oldest
+    io.out.bits := io.in(oldest).bits
   }
   //oldest is output of queue
-  when(qout){
+  //elsewhen(qout){
+  .elsewhen(qout){
     io.out.valid := queue.io.deq.valid //io.deq.bits.uop.valid
   }
 }
