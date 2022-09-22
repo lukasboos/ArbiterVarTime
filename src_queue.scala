@@ -75,6 +75,7 @@ class Queue[T <: boom.common.HasBoomUOP](gen: T, entries: Int, inputs: Int, flus
     val rob_head = Input(UInt(32.W))
   })
 
+  //val enqwire = WireInit(0.U)//Wire(UInt())
   //put oldest queue signal to out
   val oldest = RegInit(0.U)
 
@@ -102,14 +103,25 @@ class Queue[T <: boom.common.HasBoomUOP](gen: T, entries: Int, inputs: Int, flus
   }
 
   for(i <- 0 until inputs){
+    do_enq(i) := io.enq(i).fire
+  }
+
+  //enqwire := WireInit(0.U)
+  val enqwire = VecInit(Seq.fill(inputs) {0.U})
+  for(i <-1 until inputs){
+    enqwire(i) := PopCount(do_enq.slice(0, i-1))
+  }
+  for(i <- 0 until inputs){
+
     when (do_enq(i)) {
-      ram(enq_ptr.value)          := io.enq(i).bits
-      valids(enq_ptr.value)       := true.B //!IsKilledByBranch(io.brupdate, io.enq.bits.uop)
-      uops(enq_ptr.value)         := io.enq(i).bits.uop
-      uops(enq_ptr.value).br_mask := GetNewBrMask(io.brupdate, io.enq.bits.uop)
-      enq_ptr.inc()
+      ram((enq_ptr.value + enqwire(i))%entries.asUInt)          := io.enq(i).bits
+      valids((enq_ptr.value + enqwire(i))%entries.asUInt)       := true.B //!IsKilledByBranch(io.brupdate, io.enq.bits.uop)
+      uops((enq_ptr.value + enqwire(i))%entries.asUInt)         := io.enq(i).bits.uop
+      uops((enq_ptr.value + enqwire(i))%entries.asUInt).br_mask := GetNewBrMask(io.brupdate, io.enq(i).bits.uop)
+      //enqwire = PopCount(do_enq(0), do_enq(i-1))
     }
   }
+  enq_ptr.value := (enq_ptr.value + enqwire(inputs-1))%entries.asUInt
 
 
 
@@ -118,11 +130,15 @@ class Queue[T <: boom.common.HasBoomUOP](gen: T, entries: Int, inputs: Int, flus
     //deq_ptr.inc()
   }
 
-  when (do_enq =/= do_deq) {
-    maybe_full := do_enq
+  for(i <- 0 until inputs) {
+    when(do_enq(i) =/= do_deq) {
+      maybe_full := do_enq(i)
+    }
   }
 
-  io.enq.ready := !full
+  for(i <- 0 until inputs) {
+    io.enq(i).ready := !full
+  }
 
   val out = Wire(gen)
   out             := ram(deq_ptr.value)
@@ -135,7 +151,7 @@ class Queue[T <: boom.common.HasBoomUOP](gen: T, entries: Int, inputs: Int, flus
     deq_ptr.inc()
   }
 
-
+//find oldest value in queue
   for (i <- 0 until entries) {
     when(valids(i)){
       when(IsOlder(uops(i).rob_idx, uops(oldest).rob_idx, io.rob_head)){
